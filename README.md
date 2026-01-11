@@ -61,6 +61,7 @@ VITE_DOUBAO_MODEL=ep-20260111095936-7qkjv
 ```
 
 - 安全提醒：前端直接调用 Ark `/responses` 并在浏览器注入密钥，存在泄露风险。生产环境推荐通过 Vercel Serverless Function 代理，将密钥存放在后端环境变量中。
+- 已内置服务端代理：`/api/doubao/*` 会在 Vercel 上转发到 Ark（文件：`api/doubao/[...path].js`），前端默认优先走代理（变量：`VITE_DOUBAO_PROXY_BASE` 默认为 `/api/doubao`）。
 - 地域提示：如非北京地域，请使用对应地域的 Ark API 根地址。
 
 ### 部署到 Vercel
@@ -68,9 +69,13 @@ VITE_DOUBAO_MODEL=ep-20260111095936-7qkjv
 详细步骤请参阅 [DEPLOYMENT.md](DEPLOYMENT.md)
 
 **重要**: 在 Vercel 项目设置中添加以下环境变量：
-- `VITE_DOUBAO_API_KEY` - 你的豆包 API 密钥
-- `VITE_DOUBAO_BASE_URL` - API 基础 URL
-- `VITE_DOUBAO_MODEL` - 模型 ID
+- 前端（可选，仅用于本地直连 Ark）：
+  - `VITE_DOUBAO_API_KEY` - 你的豆包 API 密钥
+  - `VITE_DOUBAO_BASE_URL` - API 基础 URL
+  - `VITE_DOUBAO_MODEL` - 模型 ID
+- 服务端（推荐，用于代理 Ark）：
+  - `DOUBAO_API_KEY` - 你的豆包 API 密钥（仅服务端可见）
+  - `DOUBAO_BASE_URL` - API 基础 URL（默认 `https://ark.cn-beijing.volces.com/api/v3`）
 
 ## 📁 项目结构
 
@@ -114,6 +119,27 @@ src/
 | 0.8 - 1.0 | 极度敌对 | 人身攻击、网络暴力 |
 
 ## 🤖 AI 功能
+- **后端代理**: 通过 `/api/doubao` 转发到 Ark，避免 CORS 与密钥泄露。
+
+## 🧪 调试与测试
+
+- 本地运行带函数：
+
+```bash
+vercel dev
+```
+
+- 正常 Vite 开发（不走函数）：
+
+```bash
+npm run dev
+```
+
+- 上传一张阵容或赛后统计截图，观察页面上“AI 错误排查提示”。若仍失败，请检查：
+  - 是否缺少服务端环境变量 `DOUBAO_API_KEY`
+  - `vercel.json` 是否保留了 `/api/*` 路由（已内置）
+  - 模型 ID 是否有效、账户是否有访问权限
+  - 图片是否清晰、大小 ≤ 10MB
 
 - **截图识别**: 上传 eFootball 比赛截图，自动识别球员数据
 - **智能评论**: 基于球员表现和舆论氛围，生成真实的论坛评论

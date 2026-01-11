@@ -19,19 +19,23 @@ git commit -m "Initial commit: eFootball Immersive Web"
 5. **不要**勾选 "Initialize this repository with a README"（因为本地已有文件）
 6. 点击 "Create repository"
 
-#### 1.3 推送代码到 GitHub
+## 环境变量
 ```bash
-git remote add origin https://github.com/你的用户名/efootball-immersive-web.git
+在 Vercel 项目 Settings → Environment Variables 添加：
 git branch -M main
-git push -u origin main
-```
-
+- 服务端（推荐）：
+	- `DOUBAO_API_KEY`（必填，用于 Serverless Function 代理 Ark）
+	- `DOUBAO_BASE_URL`（可选，默认 `https://ark.cn-beijing.volces.com/api/v3`）
+- 前端（可选，仅用于本地直连 Ark）：
+	- `VITE_DOUBAO_API_KEY`
+	- `VITE_DOUBAO_BASE_URL`
+	- `VITE_DOUBAO_MODEL`
 ### 2. 部署到 Vercel
-
+生产环境建议仅配置服务端变量，避免在浏览器暴露密钥。
 #### 2.1 导入项目
 1. 访问 [Vercel](https://vercel.com) 并登录（可使用 GitHub 账号登录）
 2. 点击 "Add New..." → "Project"
-3. 选择你的 GitHub 仓库 `efootball-immersive-web`
+项目内置 `vercel.json`：
 4. 点击 "Import"
 
 #### 2.2 配置环境变量（重要！）
@@ -39,6 +43,10 @@ git push -u origin main
 
 1. 展开 "Environment Variables" 部分
 2. 添加以下环境变量：
+		{
+			"source": "/api/(.*)",
+			"destination": "/api/$1"
+		},
 
 | Name | Value |
 |------|-------|
@@ -47,17 +55,17 @@ git push -u origin main
 | `VITE_DOUBAO_MODEL` | `doubao-seed-1-8-251228` |
 
 3. 确保环境变量应用于所有环境（Production、Preview、Development）
-
+这确保 `/api/*` 不会被重写到前端 SPA，而是由 Serverless Function 处理。
 #### 2.3 部署设置
 - **Framework Preset**: Vite
 - **Build Command**: `npm run build`
-- **Output Directory**: `dist`
+已内置函数：`api/doubao/[...path].js`
 - **Install Command**: `npm install`
-
+它会将 `/api/doubao/responses` 等路径代理到 Ark，并在服务端注入 `Authorization: Bearer DOUBAO_API_KEY`，从而避免 CORS 与密钥泄露。
 #### 2.4 开始部署
 点击 "Deploy" 按钮，Vercel 将自动构建并部署你的项目。
 
-### 3. 部署后管理
+前端默认优先使用代理（`VITE_DOUBAO_PROXY_BASE=/api/doubao`），当存在 `/api/doubao` 时，浏览器不再发送 `Authorization`。
 
 #### 访问你的网站
 部署完成后，Vercel 会提供一个 URL（如：`https://efootball-immersive-web.vercel.app`）

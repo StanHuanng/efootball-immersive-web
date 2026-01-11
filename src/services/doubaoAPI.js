@@ -1,13 +1,29 @@
 const DOUBAO_BASE_URL = import.meta.env.VITE_DOUBAO_BASE_URL || 'https://ark.cn-beijing.volces.com/api/v3';
 const DOUBAO_API_KEY = import.meta.env.VITE_DOUBAO_API_KEY;
-const DOUBAO_MODEL = import.meta.env.VITE_DOUBAO_MODEL || 'doubao-seed-1-8-251228';
+const DOUBAO_MODEL = import.meta.env.VITE_DOUBAO_MODEL || 'ep-20260111095936-7qkjv';
+// Prefer server proxy to avoid CORS and expose secrets
+const PROXY_BASE = import.meta.env.VITE_DOUBAO_PROXY_BASE || '/api/doubao';
+const USE_SERVER_PROXY = PROXY_BASE && PROXY_BASE.startsWith('/');
 
 function hasApiKey() {
+  // If using server proxy, front-end does not need API key
+  if (USE_SERVER_PROXY) return true;
   return !!(DOUBAO_API_KEY && DOUBAO_API_KEY !== 'your_api_key_here');
 }
 
 function buildImageInputs(imagesBase64) {
-  return imagesBase64.map(img => ({ type: 'input_image', image_url: img }));
+  return imagesBase64.map(img => {
+    const isDataUrl = typeof img === 'string' && img.startsWith('data:');
+    const looksBase64 = typeof img === 'string' && !isDataUrl && !img.startsWith('http');
+    if (isDataUrl) {
+      return { type: 'input_image', image_url: img };
+    }
+    if (looksBase64) {
+      // Some APIs expect base64 field name; try image_base64 when not a URL
+      return { type: 'input_image', image_base64: img };
+    }
+    return { type: 'input_image', image_url: img };
+  });
 }
 
 export async function recognizeScreenshot(imageBase64) {
@@ -20,11 +36,11 @@ export async function generateComment(context) {
   }
   const { player, matchData, hostility } = context;
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
+    const response = await fetch(`${USE_SERVER_PROXY ? PROXY_BASE : DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        ...(USE_SERVER_PROXY ? {} : { 'Authorization': `Bearer ${DOUBAO_API_KEY}` })
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
@@ -51,11 +67,11 @@ export async function generateNewsReport(context) {
   }
   try {
     const { matchData, players, result } = context;
-    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
+    const response = await fetch(`${USE_SERVER_PROXY ? PROXY_BASE : DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        ...(USE_SERVER_PROXY ? {} : { 'Authorization': `Bearer ${DOUBAO_API_KEY}` })
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
@@ -81,11 +97,11 @@ export async function generateBackstories(players) {
     return getMockBackstories(players);
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
+    const response = await fetch(`${USE_SERVER_PROXY ? PROXY_BASE : DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        ...(USE_SERVER_PROXY ? {} : { 'Authorization': `Bearer ${DOUBAO_API_KEY}` })
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
@@ -111,11 +127,11 @@ export async function recognizeLineup(imageBase64) {
     return getMockFormationResult();
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
+    const response = await fetch(`${USE_SERVER_PROXY ? PROXY_BASE : DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        ...(USE_SERVER_PROXY ? {} : { 'Authorization': `Bearer ${DOUBAO_API_KEY}` })
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
@@ -141,11 +157,11 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
     return getMockVisionResult();
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
+    const response = await fetch(`${USE_SERVER_PROXY ? PROXY_BASE : DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DOUBAO_API_KEY}`
+        ...(USE_SERVER_PROXY ? {} : { 'Authorization': `Bearer ${DOUBAO_API_KEY}` })
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
