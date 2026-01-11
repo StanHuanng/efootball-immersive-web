@@ -13,6 +13,9 @@ export function NewsReport({ news }) {
         <span className="news-time">{formatTime(news.timestamp)}</span>
       </div>
       <div className="news-title">{news.title}</div>
+      {news.scoreline && (
+        <div className="news-scoreline">{news.scoreline}</div>
+      )}
       <div className="news-content">{news.content}</div>
       {news.highlights && news.highlights.length > 0 && (
         <div className="news-highlights">
@@ -30,9 +33,10 @@ export function NewsReport({ news }) {
 /**
  * 截图上传组件
  */
-export function ScreenshotUploader({ onUpload, loading }) {
+export function ScreenshotUploader({ onUpload, loading, title = '═══ 上传比赛截图 ═══', maxFiles = 3 }) {
   const [dragActive, setDragActive] = useState(false);
-  const [preview, setPreview] = useState(null);
+  const [previews, setPreviews] = useState([]);
+  const [error, setError] = useState('');
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -49,35 +53,34 @@ export function ScreenshotUploader({ onUpload, loading }) {
     e.stopPropagation();
     setDragActive(false);
     
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
     }
   };
 
   const handleChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      handleFiles(e.target.files);
     }
   };
 
-  const handleFile = (file) => {
-    // 创建预览
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setPreview(e.target.result);
-    };
-    reader.readAsDataURL(file);
-    
-    // 触发上传
-    if (onUpload) {
-      onUpload(file);
+  const handleFiles = async (files) => {
+    const limited = Array.from(files).slice(0, maxFiles);
+    try {
+      const readers = await Promise.all(limited.map(file => toDataUrl(file)));
+      setPreviews(readers);
+      setError('');
+      onUpload && onUpload(limited);
+    } catch (err) {
+      console.error(err);
+      setError('预览生成失败，请重试');
     }
   };
 
   return (
     <div className="screenshot-uploader">
       <div className="uploader-header">
-        ═══ 上传比赛截图 ═══
+        {title}
       </div>
       <div
         className={`upload-area ${dragActive ? 'drag-active' : ''}`}
@@ -86,14 +89,19 @@ export function ScreenshotUploader({ onUpload, loading }) {
         onDragOver={handleDrag}
         onDrop={handleDrop}
       >
-        {preview ? (
-          <div className="preview-container">
-            <img src={preview} alt="Preview" className="preview-image" />
+        {previews.length > 0 ? (
+          <div className="preview-container multi">
+            <div className="preview-grid">
+              {previews.map((src, idx) => (
+                <img key={idx} src={src} alt={`Preview ${idx + 1}`} className="preview-image" />
+              ))}
+            </div>
             <button 
               className="btn"
               onClick={() => {
-                setPreview(null);
-                document.getElementById('file-upload').value = '';
+                setPreviews([]);
+                const input = document.getElementById('file-upload');
+                if (input) input.value = '';
               }}
             >
               重新选择
@@ -103,10 +111,10 @@ export function ScreenshotUploader({ onUpload, loading }) {
           <div className="upload-prompt">
             <div className="upload-icon">📸</div>
             <div className="upload-text">
-              {loading ? '正在识别截图...' : '点击或拖拽上传 eFootball 赛后截图'}
+              {loading ? '正在识别截图...' : `点击或拖拽上传 1-${maxFiles} 张 eFootball 截图`}
             </div>
             <div className="upload-hint">
-              支持 JPG、PNG、WEBP 格式，最大 10MB
+              支持 JPG、PNG、WEBP 格式，最大 10MB/张
             </div>
             <input
               id="file-upload"
@@ -114,11 +122,13 @@ export function ScreenshotUploader({ onUpload, loading }) {
               accept="image/*"
               onChange={handleChange}
               style={{ display: 'none' }}
+              multiple
               disabled={loading}
             />
             <label htmlFor="file-upload" className="btn btn-primary">
               {loading ? '识别中...' : '选择文件'}
             </label>
+            {error && <div className="upload-error">{error}</div>}
           </div>
         )}
       </div>
@@ -140,6 +150,12 @@ export function MatchResultCard({ matchData, onConfirm, onCancel }) {
           <span className="result-label">比赛结果:</span>
           <span className="result-value">{getResultText(matchData.result)}</span>
         </div>
+        {matchData.score && (
+          <div className="result-row">
+            <span className="result-label">比分:</span>
+            <span className="result-value">{matchData.score}</span>
+          </div>
+        )}
         <div className="result-row">
           <span className="result-label">控球率:</span>
           <span className="result-value">{matchData.possession}%</span>
@@ -169,6 +185,46 @@ export function MatchResultCard({ matchData, onConfirm, onCancel }) {
   );
 }
 
+/**
+ * 阵容确认卡片（招募阶段）
+ */
+export function FormationResultCard({ formation, onConfirm, onCancel }) {
+  if (!formation) return null;
+  return (
+    <div className="match-result-card fade-in">
+      <div className="result-header">═══ 阵容识别确认 ═══</div>
+      <div className="result-content">
+        <div className="result-row">
+          <span className="result-label">球队名:</span>
+          <span className="result-value">{formation.teamName || '失意者联盟'}</span>
+        </div>
+        <div className="result-divider">───────────</div>
+        <div className="result-players">
+          {formation.players.map((player, index) => (
+            <div key={index} className="result-player">
+              <span className="player-name">{player.name}</span>
+              <span className="player-position">{player.position || '未知'}</span>
+              {player.rating && (
+                <span className="player-rating rating-average">
+                  {typeof player.rating === 'number' ? player.rating.toFixed(1) : player.rating}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="result-actions">
+        <button className="btn btn-primary" onClick={onConfirm}>
+          确认并注入人设
+        </button>
+        <button className="btn" onClick={onCancel}>
+          重新上传
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // 辅助函数
 function formatTime(timestamp) {
   const date = new Date(timestamp);
@@ -189,4 +245,13 @@ function getRatingClass(rating) {
   if (rating >= 7.0) return 'rating-good';
   if (rating >= 6.0) return 'rating-average';
   return 'rating-poor';
+}
+
+function toDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

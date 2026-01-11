@@ -6,7 +6,8 @@ const STORAGE_KEYS = {
   PLAYERS: 'misfit_alliance_players',
   POSTS: 'misfit_alliance_posts',
   HOSTILITY: 'misfit_alliance_hostility',
-  GAME_STATE: 'misfit_alliance_game_state'
+  GAME_STATE: 'misfit_alliance_game_state',
+  MATCH_HISTORY: 'misfit_alliance_match_history'
 };
 
 /**
@@ -122,8 +123,23 @@ export class StorageManager {
       wins: 0,
       losses: 0,
       draws: 0,
-      matchCount: 0
+      matchCount: 0,
+      recentResults: []
     });
+  }
+
+  /**
+   * 保存比赛历史
+   */
+  static saveMatchHistory(history) {
+    return this.save(STORAGE_KEYS.MATCH_HISTORY, history);
+  }
+
+  /**
+   * 读取比赛历史
+   */
+  static loadMatchHistory() {
+    return this.load(STORAGE_KEYS.MATCH_HISTORY, []);
   }
 }
 
@@ -169,5 +185,11 @@ export function initializeDefaultData() {
   const hostility = StorageManager.loadHostility();
   if (hostility === null || hostility === undefined) {
     StorageManager.saveHostility(0.7); // 初始高敌对度
+  }
+
+  // 初始化比赛历史
+  const history = StorageManager.loadMatchHistory();
+  if (!Array.isArray(history)) {
+    StorageManager.saveMatchHistory([]);
   }
 }

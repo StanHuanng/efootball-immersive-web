@@ -1,28 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Player, ForumPost } from './models/DataModels';
 import { StorageManager, initializeDefaultData } from './utils/storage';
 import { PlayerList, HostilityMeter, ForumPostList } from './components/BBSComponents';
-import { ScreenshotUploader, MatchResultCard, NewsReport } from './components/UploadComponents';
+import { ScreenshotUploader, MatchResultCard, NewsReport, FormationResultCard } from './components/UploadComponents';
 import { RedemptionEngine, SentimentEngine } from './engine/GameEngine';
-import { recognizeScreenshot, generateComment, generateNewsReport } from './services/doubaoAPI';
+import { recognizeLineup, recognizeMatchScreenshots, generateComment, generateNewsReport, generateBackstories } from './services/doubaoAPI';
 import { fileToBase64, compressImage, validateImageFile } from './utils/imageUtils';
 import './styles/retro.css';
 
+const PAGES = {
+  RECRUIT: 'recruit',
+  MEDIA: 'media',
+  DASH: 'dashboard'
+};
+
 function App() {
+  const [activePage, setActivePage] = useState(PAGES.RECRUIT);
   const [players, setPlayers] = useState([]);
   const [posts, setPosts] = useState([]);
-  const [hostility, setHostility] = useState(0.5);
+  const [hostility, setHostility] = useState(0.65);
   const [gameState, setGameState] = useState({
     wins: 0,
     losses: 0,
     draws: 0,
-    matchCount: 0
+    matchCount: 0,
+    recentResults: []
   });
-  const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [matchHistory, setMatchHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [matchResult, setMatchResult] = useState(null);
   const [latestNews, setLatestNews] = useState(null);
-  const [showUploader, setShowUploader] = useState(true);
+  const [formationDraft, setFormationDraft] = useState(null);
+  const [lineupLoading, setLineupLoading] = useState(false);
 
   useEffect(() => {
     initializeDefaultData();
@@ -34,26 +43,27 @@ function App() {
     const loadedPosts = StorageManager.loadPosts().map(p => new ForumPost(p));
     const loadedHostility = StorageManager.loadHostility();
     const loadedGameState = StorageManager.loadGameState();
+    const loadedHistory = StorageManager.loadMatchHistory();
     setPlayers(loadedPlayers);
     setPosts(loadedPosts);
     setHostility(loadedHostility);
     setGameState(loadedGameState);
+    setMatchHistory(loadedHistory);
   };
 
-  const saveData = () => {
+  useEffect(() => {
     StorageManager.savePlayers(players);
     StorageManager.savePosts(posts);
     StorageManager.saveHostility(hostility);
     StorageManager.saveGameState(gameState);
-  };
+    StorageManager.saveMatchHistory(matchHistory);
+  }, [players, posts, hostility, gameState, matchHistory]);
 
-  useEffect(() => {
-    saveData();
-  }, [players, posts, hostility, gameState]);
-
-  const handlePlayerSelect = (player) => {
-    setSelectedPlayer(player);
-  };
+  const averageRating = useMemo(() => {
+    if (!matchResult || !matchResult.players || matchResult.players.length === 0) return null;
+    const total = matchResult.players.reduce((sum, p) => sum + (Number(p.rating) || 0), 0);
+    return (total / matchResult.players.length).toFixed(2);
+  }, [matchResult]);
 
   const handleReply = (postId, content) => {
     const updatedPosts = posts.map(post => {
@@ -89,22 +99,83 @@ function App() {
     setHostility(Math.min(1, hostility + 0.03));
   };
 
-  const handleImageUpload = async (file) => {
+  const handleFormationUpload = async (files) => {
+    const file = files?.[0];
     const validation = validateImageFile(file);
     if (!validation.valid) {
       alert(validation.error);
       return;
     }
-    setLoading(true);
+    setLineupLoading(true);
     try {
       const base64 = await fileToBase64(file);
       const compressed = await compressImage(base64);
-      const result = await recognizeScreenshot(compressed);
+      const result = await recognizeLineup(compressed);
+      const enrichedPlayers = await injectBackstories(result.players || []);
+      setFormationDraft({ ...result, players: enrichedPlayers });
+      setActivePage(PAGES.RECRUIT);
+    } catch (error) {
+      console.error('阵容识别失败:', error);
+      alert('阵容识别失败，请重试');
+    } finally {
+      setLineupLoading(false);
+    }
+  };
+
+  const injectBackstories = async (playerList) => {
+    if (!playerList || playerList.length === 0) return [];
+    try {
+      const generated = await generateBackstories(playerList);
+      return generated.map((p, idx) => ({
+        ...playerList[idx],
+        ...p,
+        redemptionScore: p.redemptionScore || 50
+      }));
+    } catch (error) {
+      console.error('生成人设失败:', error);
+      return playerList.map(p => ({ ...p, nickname: p.nickname || '失意者', backstory: p.backstory || '曾经的天才，如今沉沦', redemptionScore: 50 }));
+    }
+  };
+
+  const handleConfirmFormation = () => {
+    if (!formationDraft) return;
+    const newPlayers = formationDraft.players.map(p => new Player({
+      ...p,
+      redemptionScore: p.redemptionScore ?? 50,
+      history: []
+    }));
+    setPlayers(newPlayers);
+    setPosts([]);
+    setHostility(0.68);
+    setGameState({ wins: 0, losses: 0, draws: 0, matchCount: 0, recentResults: [] });
+    setMatchHistory([]);
+    setFormationDraft(null);
+    setActivePage(PAGES.MEDIA);
+  };
+
+  const handleMatchUpload = async (files) => {
+    if (!files || files.length === 0) return;
+    for (const file of files) {
+      const validation = validateImageFile(file);
+      if (!validation.valid) {
+        alert(validation.error);
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      const encoded = [];
+      for (const file of files) {
+        const base64 = await fileToBase64(file);
+        const compressed = await compressImage(base64);
+        encoded.push(compressed);
+      }
+      const result = await recognizeMatchScreenshots(encoded, players);
       setMatchResult(result);
-      setLoading(false);
     } catch (error) {
       console.error('图片处理失败:', error);
       alert('图片处理失败，请重试');
+    } finally {
       setLoading(false);
     }
   };
@@ -113,22 +184,23 @@ function App() {
     if (!matchResult) return;
     setLoading(true);
     try {
+      const matchPlayers = matchResult.players || [];
       const news = await generateNewsReport({
         matchData: matchResult,
-        players: matchResult.players,
+        players: matchPlayers,
         result: matchResult.result
       });
-      setLatestNews(news);
+      setLatestNews({ ...news, scoreline: matchResult.score || news.scoreline });
 
       const updatedPlayers = players.map(player => {
-        const matchPlayer = matchResult.players.find(p => p.name === player.name);
+        const matchPlayer = matchPlayers.find(p => p.name === player.name);
         if (matchPlayer) {
           const newPlayer = new Player(player);
           const updateResult = RedemptionEngine.updatePlayerRedemption(newPlayer, {
             rating: matchPlayer.rating,
             position: matchPlayer.position,
-            goals: 0,
-            assists: 0
+            goals: matchPlayer.goals || 0,
+            assists: matchPlayer.assists || 0
           });
           return updateResult.player;
         }
@@ -136,7 +208,11 @@ function App() {
       });
       setPlayers(updatedPlayers);
 
-      const newHostility = SentimentEngine.updateHostility(hostility, matchResult.result, 0);
+      const avgRatingValue = averageRating ? Number(averageRating) : 6.5;
+      const scoreDiff = computeScoreDiff(matchResult.score);
+      let newHostility = SentimentEngine.updateHostility(hostility, matchResult.result, scoreDiff, avgRatingValue);
+      const trendAdjustment = SentimentEngine.calculateTrend([...(gameState.recentResults || []), matchResult.result]);
+      newHostility = Math.max(0, Math.min(1, newHostility + trendAdjustment));
       setHostility(newHostility);
 
       const newGameState = { ...gameState };
@@ -144,10 +220,11 @@ function App() {
       if (matchResult.result === 'win') newGameState.wins += 1;
       else if (matchResult.result === 'draw') newGameState.draws += 1;
       else if (matchResult.result === 'loss') newGameState.losses += 1;
+      newGameState.recentResults = [...(gameState.recentResults || []), matchResult.result].slice(-5);
       setGameState(newGameState);
 
       const newPosts = [];
-      for (const matchPlayer of matchResult.players) {
+      for (const matchPlayer of matchPlayers) {
         const player = players.find(p => p.name === matchPlayer.name);
         if (player) {
           const comment = await generateComment({
@@ -168,13 +245,35 @@ function App() {
           }
         }
       }
-      setPosts([...newPosts, ...posts]);
+      const ensuredPosts = [...newPosts];
+      const fillersNeeded = Math.max(0, 5 - ensuredPosts.length);
+      for (let i = 0; i < fillersNeeded; i += 1) {
+        ensuredPosts.push(buildFillerPost(newHostility));
+      }
+      setPosts([...ensuredPosts, ...posts].slice(0, 100));
+
+      const topPerformers = [...matchPlayers]
+        .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+        .slice(0, 3)
+        .map(p => `${p.name} ${Number(p.rating || 0).toFixed(1)}`);
+      const newHistory = [{
+        id: Date.now().toString(),
+        result: matchResult.result,
+        score: matchResult.score || '',
+        possession: matchResult.possession,
+        averageRating: avgRatingValue,
+        topPerformers,
+        hostility: newHostility,
+        timestamp: Date.now()
+      }, ...matchHistory].slice(0, 15);
+      setMatchHistory(newHistory);
+
       setMatchResult(null);
-      setLoading(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
       console.error('处理比赛结果失败:', error);
       alert('处理失败，请重试');
+    } finally {
       setLoading(false);
     }
   };
@@ -182,6 +281,132 @@ function App() {
   const handleCancelMatch = () => {
     setMatchResult(null);
   };
+
+  const renderRecruitPage = () => (
+    <div className="page-grid">
+      <div className="panel">
+        <div className="panel-title">阵型截图上传</div>
+        <p className="panel-desc">上传包含首发名单/阵型的截图，AI 将识别球员并生成“失意者背景”。</p>
+        <ScreenshotUploader onUpload={handleFormationUpload} loading={lineupLoading} title="═══ 上传阵型截图 ═══" maxFiles={1} />
+        {formationDraft && (
+          <FormationResultCard
+            formation={formationDraft}
+            onConfirm={handleConfirmFormation}
+            onCancel={() => setFormationDraft(null)}
+          />
+        )}
+      </div>
+      <div className="panel">
+        <div className="panel-title">当前失意者名单</div>
+        <PlayerList players={players} />
+      </div>
+    </div>
+  );
+
+  const renderMediaPage = () => (
+    <div className="page-grid">
+      <div className="panel">
+        <div className="panel-title">赛后媒体中心</div>
+        <p className="panel-desc">上传 1-3 张赛后统计截图，识别结果后生成新闻与论坛回帖。</p>
+        {!matchResult && (
+          <ScreenshotUploader onUpload={handleMatchUpload} loading={loading} />
+        )}
+        {matchResult && (
+          <MatchResultCard
+            matchData={matchResult}
+            onConfirm={handleConfirmMatch}
+            onCancel={handleCancelMatch}
+          />
+        )}
+        {latestNews && <NewsReport news={latestNews} />}
+      </div>
+      <div className="panel">
+        <div className="panel-title">论坛实时回帖</div>
+        <HostilityMeter hostility={hostility} />
+        <ForumPostList
+          posts={posts}
+          onReply={handleReply}
+          onSupport={handleSupport}
+          onOppose={handleOppose}
+        />
+      </div>
+    </div>
+  );
+
+  const renderDashboard = () => (
+    <div className="page-grid">
+      <div className="panel">
+        <div className="panel-title">主教练面板</div>
+        <div className="stat-line">战绩：{gameState.wins}胜 {gameState.draws}平 {gameState.losses}负 · 场次 {gameState.matchCount}</div>
+        <div className="impression-row">
+          <div>
+            <div className="mini-label">网络印象分</div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${SentimentEngine.getImpressionScore(hostility)}%` }} />
+            </div>
+            <div className="mini-value">{SentimentEngine.getImpressionScore(hostility)} / 100</div>
+          </div>
+          <div>
+            <div className="mini-label">敌对度</div>
+            <HostilityMeter hostility={hostility} />
+          </div>
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-title">人设卡片</div>
+        <div className="card-grid">
+          {players.map(player => (
+            <div key={player.id} className="story-card">
+              <div className="story-header">
+                <div>
+                  <div className="player-name">{player.name}</div>
+                  <div className="player-nickname">「{player.nickname}」</div>
+                </div>
+                <div className={`redemption-state ${player.getRedemptionState().toLowerCase()}`}>
+                  {player.getRedemptionState()}
+                </div>
+              </div>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${player.redemptionScore}%` }} />
+              </div>
+              <div className="mini-value">救赎值 {player.redemptionScore}/100</div>
+              <div className="story-text">{player.backstory}</div>
+              <div className="mini-label">最近表现</div>
+              <div className="mini-history">
+                {(player.history || []).slice(-3).map((h, idx) => (
+                  <span key={idx} className="history-chip">{Number(h.rating || 0).toFixed(1)}</span>
+                ))}
+                {(player.history || []).length === 0 && <span className="history-chip empty">暂无数据</span>}
+              </div>
+            </div>
+          ))}
+          {players.length === 0 && (
+            <div className="empty-hint">暂无球员，请先完成阵容招募。</div>
+          )}
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-title">历史记录</div>
+        <div className="history-list">
+          {matchHistory.map(item => (
+            <div key={item.id} className="history-item">
+              <div className="history-left">
+                <div className="history-result">{getResultText(item.result)} {item.score}</div>
+                <div className="history-meta">控球 {item.possession}% · 场均 {item.averageRating.toFixed(2)}</div>
+                <div className="history-meta">敌对度 {Math.round(item.hostility * 100)}%</div>
+              </div>
+              <div className="history-right">
+                {item.topPerformers?.map((p, idx) => (
+                  <span key={idx} className="history-chip">{p}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+          {matchHistory.length === 0 && <div className="empty-hint">暂无历史记录，上传赛后截图生成首条战报。</div>}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="container">
@@ -199,50 +424,69 @@ function App() {
         <h1 className="retro-text">═══ 失意者联盟 ═══</h1>
         <div className="subtitle">eFootball 复古论坛 | 见证黑马逆袭史诗</div>
       </div>
-      <div className="info-bar">
-        <div>
-          <span className="stat">
-            <span className="stat-label">战绩:</span>
-            <span className="stat-value">
-              {gameState.wins}胜 {gameState.draws}平 {gameState.losses}负
-            </span>
-          </span>
-          <span className="stat">
-            <span className="stat-label">场次:</span>
-            <span className="stat-value">{gameState.matchCount}</span>
-          </span>
-        </div>
-        <div>
-          <button className="btn btn-primary" onClick={() => setShowUploader(!showUploader)}>
-            {showUploader ? '隐藏上传' : '上传截图'}
+
+      <div className="page-nav">
+        {Object.values(PAGES).map(page => (
+          <button
+            key={page}
+            className={`nav-tab ${activePage === page ? 'active' : ''}`}
+            onClick={() => setActivePage(page)}
+          >
+            {page === PAGES.RECRUIT && '球队组建'}
+            {page === PAGES.MEDIA && '动态媒体中心'}
+            {page === PAGES.DASH && '主教练面板'}
           </button>
-        </div>
+        ))}
       </div>
-      {showUploader && !matchResult && (
-        <ScreenshotUploader onUpload={handleImageUpload} loading={loading} />
-      )}
-      {matchResult && (
-        <MatchResultCard
-          matchData={matchResult}
-          onConfirm={handleConfirmMatch}
-          onCancel={handleCancelMatch}
-        />
-      )}
-      {latestNews && <NewsReport news={latestNews} />}
-      <HostilityMeter hostility={hostility} />
-      <PlayerList players={players} onPlayerSelect={handlePlayerSelect} />
-      <ForumPostList
-        posts={posts}
-        onReply={handleReply}
-        onSupport={handleSupport}
-        onOppose={handleOppose}
-      />
+
+      {activePage === PAGES.RECRUIT && renderRecruitPage()}
+      {activePage === PAGES.MEDIA && renderMediaPage()}
+      {activePage === PAGES.DASH && renderDashboard()}
+
       <div className="footer">
         <div>═══════════════════════════════</div>
         <div style={{ marginTop: '10px' }}>失意者联盟 BBS · 2000-2026 · 见证逆袭传奇</div>
       </div>
     </div>
   );
+}
+
+function getResultText(result) {
+  const map = {
+    win: '✓ 胜利',
+    draw: '— 平局',
+    loss: '✗ 失败'
+  };
+  return map[result] || '未知';
+}
+
+function computeScoreDiff(scoreStr) {
+  if (!scoreStr || typeof scoreStr !== 'string') return 0;
+  const match = scoreStr.match(/(\d+)\s*[-:]\s*(\d+)/);
+  if (!match) return 0;
+  return Math.abs(parseInt(match[1], 10) - parseInt(match[2], 10));
+}
+
+function buildFillerPost(hostility) {
+  const intensity = SentimentEngine.getCommentIntensity(hostility);
+  const toxicPool = [
+    '牢大又梦游了？顶级理解变顶级遛弯，依托构思笑死人。',
+    '神仙球没了，全是神仙操作的反面教材，论坛敌对度直接拉满。',
+    '又输了？队徽先卸下来吧，这救赎值要掉到地下室了。'
+  ];
+  const hypePool = [
+    '今天是真硬刚，谁还敢叫他水货？我要写道歉信了。',
+    '逆袭味儿出来了，牢弟开始把剧情拉回来了，点赞先上。',
+    '这场真有顶级理解，黑子们先别急，先把键盘放下。'
+  ];
+  const pool = intensity === 'toxic' ? toxicPool : hypePool;
+  const content = pool[Math.floor(Math.random() * pool.length)];
+  return new ForumPost({
+    author: `围观群众${Math.floor(Math.random() * 9999)}`,
+    content,
+    intensity,
+    playerId: null
+  });
 }
 
 export default App;

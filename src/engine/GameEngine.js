@@ -67,7 +67,7 @@ export class SentimentEngine {
    * @param {number} scoreDiff - 比分差距
    * @returns {number} 新的敌对度
    */
-  static updateHostility(currentHostility, result, scoreDiff = 0) {
+  static updateHostility(currentHostility, result, scoreDiff = 0, averageRating = 6.5) {
     let change = 0;
     
     switch(result) {
@@ -83,6 +83,13 @@ export class SentimentEngine {
         // 失败增加敌对度
         change = 0.15 + (scoreDiff * 0.03);
         break;
+    }
+
+    // 评分加权（场均低于6.5会提高敌对度）
+    if (averageRating < 6.5) {
+      change += (6.5 - averageRating) * 0.03;
+    } else if (averageRating > 7.2) {
+      change -= (averageRating - 7.2) * 0.02;
     }
     
     const newHostility = Math.max(0, Math.min(1, currentHostility + change));
@@ -119,6 +126,13 @@ export class SentimentEngine {
    */
   static getCommentIntensity(hostility) {
     return hostility > 0.5 ? IntensityType.TOXIC : IntensityType.HYPE;
+  }
+
+  /**
+   * 计算印象分（用于仪表盘展示）
+   */
+  static getImpressionScore(hostility) {
+    return Math.max(0, Math.min(100, Math.round((1 - hostility) * 100)));
   }
 
   /**
