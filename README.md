@@ -48,10 +48,20 @@ npm run dev
 
 ### AI 配置（豆包 / 火山方舟）
 - 必填环境变量（本地 .env.local / Vercel 环境变量）：
-	- `VITE_DOUBAO_API_KEY`：豆包 API 密钥（火山方舟控制台获取）
-	- `VITE_DOUBAO_BASE_URL`：默认 `https://ark.cn-beijing.volces.com/api/v3`
-	- `VITE_DOUBAO_MODEL`：如 `doubao-seed-1-8-251228`
-- 当前前端直接调用 Ark `/responses` 接口并在浏览器注入密钥，**存在前端暴露风险**。若需更安全方案，建议在 Vercel Serverless Function 中代理请求并将密钥移出前端。
+  - `VITE_DOUBAO_API_KEY`：豆包 API 密钥（火山方舟控制台获取）
+  - `VITE_DOUBAO_BASE_URL`：填根地址，不要包含 `/responses`，推荐 `https://ark.cn-beijing.volces.com/api/v3`
+  - `VITE_DOUBAO_MODEL`：模型 ID（如 `doubao-seed-1-8-251228` 或 `ep-...`）
+- 示例配置：
+
+```bash
+# .env.local（本地开发）
+VITE_DOUBAO_API_KEY=your_key_here
+VITE_DOUBAO_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+VITE_DOUBAO_MODEL=ep-20260111095936-7qkjv
+```
+
+- 安全提醒：前端直接调用 Ark `/responses` 并在浏览器注入密钥，存在泄露风险。生产环境推荐通过 Vercel Serverless Function 代理，将密钥存放在后端环境变量中。
+- 地域提示：如非北京地域，请使用对应地域的 Ark API 根地址。
 
 ### 部署到 Vercel
 
@@ -80,7 +90,7 @@ src/
 └── main.jsx                   # 入口文件
 ```
 
-## � 核心算法
+## 🧠 核心算法
 
 ### 救赎值计算规则
 
@@ -109,7 +119,7 @@ src/
 - **智能评论**: 基于球员表现和舆论氛围，生成真实的论坛评论
 - **情感分析**: 动态调整评论语气（毒舌/追捧/理性）
 
-## �️ 开发路线图
+## 🛠️ 开发路线图
 
 - [x] 复古 BBS 界面设计
 - [x] 球员救赎系统核心算法
@@ -140,3 +150,15 @@ src/
 ---
 
 **Made with ⚽ by StanHuanng**
+
+---
+
+## 🔔 注意事项与使用小贴士
+
+- 环境变量：`VITE_DOUBAO_BASE_URL` 只填根地址（例如 `https://ark.cn-beijing.volces.com/api/v3`），实际代码会自动拼接 `/responses`。
+- 模型切换：如果要改为 `ep-...` 模型，直接在 Vercel 的 `VITE_DOUBAO_MODEL` 修改即可，无需改代码。
+- 上传规范：支持 JPG/PNG/WEBP，单张 ≤ 10MB，建议清晰的原图以提升识别效果。
+- 两步识别流程：
+	- 球队组建页：先“选择阵容文件”，再点击“确认识别”；识别期间显示等待动画，失败会展示可排查原因。
+	- 媒体中心：同样采用两步确认上传的识别流程，便于排查与复试。
+- 安全建议：生产环境避免在前端注入密钥，使用 Serverless 代理 Ark 请求更安全。
