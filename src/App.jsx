@@ -32,6 +32,7 @@ function App() {
   const [latestNews, setLatestNews] = useState(null);
   const [formationDraft, setFormationDraft] = useState(null);
   const [lineupLoading, setLineupLoading] = useState(false);
+  const [recruitError, setRecruitError] = useState('');
 
   useEffect(() => {
     initializeDefaultData();
@@ -103,7 +104,7 @@ function App() {
     const file = files?.[0];
     const validation = validateImageFile(file);
     if (!validation.valid) {
-      alert(validation.error);
+      setRecruitError(validation.error);
       return;
     }
     setLineupLoading(true);
@@ -113,10 +114,11 @@ function App() {
       const result = await recognizeLineup(compressed);
       const enrichedPlayers = await injectBackstories(result.players || []);
       setFormationDraft({ ...result, players: enrichedPlayers });
+      setRecruitError('');
       setActivePage(PAGES.RECRUIT);
     } catch (error) {
       console.error('阵容识别失败:', error);
-      alert('阵容识别失败，请重试');
+      setRecruitError(buildAIErrorHints(error));
     } finally {
       setLineupLoading(false);
     }
@@ -287,7 +289,22 @@ function App() {
       <div className="panel">
         <div className="panel-title">阵型截图上传</div>
         <p className="panel-desc">上传包含首发名单/阵型的截图，AI 将识别球员并生成“失意者背景”。</p>
-        <ScreenshotUploader onUpload={handleFormationUpload} loading={lineupLoading} title="═══ 上传阵型截图 ═══" maxFiles={1} />
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <button className="btn btn-primary" onClick={() => {
+            const el = document.getElementById('recruit-upload');
+            if (el) el.click();
+          }}>选择阵容文件</button>
+          <button className="btn" onClick={() => setRecruitError('')}>清除提示</button>
+        </div>
+        <ScreenshotUploader onUpload={handleFormationUpload} loading={lineupLoading} title="═══ 上传阵型截图 ═══" maxFiles={1} triggerId="recruit-upload" />
+        {recruitError && (
+          <div className="error-box" style={{ marginTop: 12 }}>
+            <div className="error-title">AI 识别失败可能原因</div>
+            <ul className="error-list">
+              {Array.isArray(recruitError) ? recruitError.map((t, i) => (<li key={i}>{t}</li>)) : (<li>{recruitError}</li>)}
+            </ul>
+          </div>
+        )}
         {formationDraft && (
           <FormationResultCard
             formation={formationDraft}
@@ -465,6 +482,22 @@ function computeScoreDiff(scoreStr) {
   const match = scoreStr.match(/(\d+)\s*[-:]\s*(\d+)/);
   if (!match) return 0;
   return Math.abs(parseInt(match[1], 10) - parseInt(match[2], 10));
+}
+
+function buildAIErrorHints(error) {
+  const hints = [
+    '未配置或填错 VITE_DOUBAO_API_KEY（请在 Vercel 环境变量或 .env.local 配置）',
+    'VITE_DOUBAO_BASE_URL 不可达或非 https://ark.cn-beijing.volces.com/api/v3',
+    'VITE_DOUBAO_MODEL 无效或无访问权限（确认模型 ID）',
+    '截图不清晰或格式/大小不符合（仅支持 JPG/PNG/WEBP，≤10MB）',
+    '跨域或网络代理拦截，建议改用后端代理（Serverless Function）',
+    'Ark /responses 返回内容非 JSON 或解析失败（请重试）'
+  ];
+  const msg = (error && (error.message || String(error))) || '';
+  if (msg) {
+    return [msg, ...hints];
+  }
+  return hints;
 }
 
 function buildFillerPost(hostility) {

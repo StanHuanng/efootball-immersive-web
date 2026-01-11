@@ -33,7 +33,7 @@ export function NewsReport({ news }) {
 /**
  * 截图上传组件
  */
-export function ScreenshotUploader({ onUpload, loading, title = '═══ 上传比赛截图 ═══', maxFiles = 3 }) {
+export function ScreenshotUploader({ onUpload, loading, title = '═══ 上传比赛截图 ═══', maxFiles = 3, triggerId = 'file-upload' }) {
   const [dragActive, setDragActive] = useState(false);
   const [previews, setPreviews] = useState([]);
   const [error, setError] = useState('');
@@ -100,7 +100,7 @@ export function ScreenshotUploader({ onUpload, loading, title = '═══ 上�
               className="btn"
               onClick={() => {
                 setPreviews([]);
-                const input = document.getElementById('file-upload');
+                const input = document.getElementById(triggerId);
                 if (input) input.value = '';
               }}
             >
@@ -117,7 +117,7 @@ export function ScreenshotUploader({ onUpload, loading, title = '═══ 上�
               支持 JPG、PNG、WEBP 格式，最大 10MB/张
             </div>
             <input
-              id="file-upload"
+              id={triggerId}
               type="file"
               accept="image/*"
               onChange={handleChange}
@@ -125,7 +125,7 @@ export function ScreenshotUploader({ onUpload, loading, title = '═══ 上�
               multiple
               disabled={loading}
             />
-            <label htmlFor="file-upload" className="btn btn-primary">
+            <label htmlFor={triggerId} className="btn btn-primary">
               {loading ? '识别中...' : '选择文件'}
             </label>
             {error && <div className="upload-error">{error}</div>}
