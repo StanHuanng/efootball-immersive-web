@@ -46,6 +46,13 @@ cp .env.example .env.local
 npm run dev
 ```
 
+### AI 配置（豆包 / 火山方舟）
+- 必填环境变量（本地 .env.local / Vercel 环境变量）：
+	- `VITE_DOUBAO_API_KEY`：豆包 API 密钥（火山方舟控制台获取）
+	- `VITE_DOUBAO_BASE_URL`：默认 `https://ark.cn-beijing.volces.com/api/v3`
+	- `VITE_DOUBAO_MODEL`：如 `doubao-seed-1-8-251228`
+- 当前前端直接调用 Ark `/responses` 接口并在浏览器注入密钥，**存在前端暴露风险**。若需更安全方案，建议在 Vercel Serverless Function 中代理请求并将密钥移出前端。
+
 ### 部署到 Vercel
 
 详细步骤请参阅 [DEPLOYMENT.md](DEPLOYMENT.md)
