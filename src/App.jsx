@@ -33,6 +33,9 @@ function App() {
   const [formationDraft, setFormationDraft] = useState(null);
   const [lineupLoading, setLineupLoading] = useState(false);
   const [recruitError, setRecruitError] = useState('');
+  const [recruitFiles, setRecruitFiles] = useState([]);
+  const [mediaFiles, setMediaFiles] = useState([]);
+  const [mediaError, setMediaError] = useState('');
 
   useEffect(() => {
     initializeDefaultData();
@@ -100,8 +103,26 @@ function App() {
     setHostility(Math.min(1, hostility + 0.03));
   };
 
-  const handleFormationUpload = async (files) => {
+  const handleFormationUpload = (files) => {
     const file = files?.[0];
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      setRecruitError(validation.error);
+      setRecruitFiles([]);
+      return;
+    }
+    setRecruitFiles([file]);
+    setRecruitError('');
+    setFormationDraft(null);
+    setActivePage(PAGES.RECRUIT);
+  };
+
+  const confirmFormationUpload = async () => {
+    const file = recruitFiles?.[0];
+    if (!file) {
+      setRecruitError('请先选择阵容文件再确认识别。');
+      return;
+    }
     const validation = validateImageFile(file);
     if (!validation.valid) {
       setRecruitError(validation.error);
@@ -115,7 +136,6 @@ function App() {
       const enrichedPlayers = await injectBackstories(result.players || []);
       setFormationDraft({ ...result, players: enrichedPlayers });
       setRecruitError('');
-      setActivePage(PAGES.RECRUIT);
     } catch (error) {
       console.error('阵容识别失败:', error);
       setRecruitError(buildAIErrorHints(error));
@@ -155,28 +175,47 @@ function App() {
     setActivePage(PAGES.MEDIA);
   };
 
-  const handleMatchUpload = async (files) => {
+  const handleMatchUpload = (files) => {
     if (!files || files.length === 0) return;
     for (const file of files) {
       const validation = validateImageFile(file);
       if (!validation.valid) {
-        alert(validation.error);
+        setMediaError(validation.error);
+        setMediaFiles([]);
+        return;
+      }
+    }
+    setMediaFiles(Array.from(files));
+    setMediaError('');
+    setMatchResult(null);
+  };
+
+  const confirmMatchUpload = async () => {
+    if (!mediaFiles || mediaFiles.length === 0) {
+      setMediaError('请先选择比赛截图再确认识别。');
+      return;
+    }
+    for (const file of mediaFiles) {
+      const validation = validateImageFile(file);
+      if (!validation.valid) {
+        setMediaError(validation.error);
         return;
       }
     }
     setLoading(true);
     try {
       const encoded = [];
-      for (const file of files) {
+      for (const file of mediaFiles) {
         const base64 = await fileToBase64(file);
         const compressed = await compressImage(base64);
         encoded.push(compressed);
       }
       const result = await recognizeMatchScreenshots(encoded, players);
       setMatchResult(result);
+      setMediaError('');
     } catch (error) {
-      console.error('图片处理失败:', error);
-      alert('图片处理失败，请重试');
+      console.error('比赛截图识别失败:', error);
+      setMediaError(buildAIErrorHints(error));
     } finally {
       setLoading(false);
     }
@@ -282,6 +321,7 @@ function App() {
 
   const handleCancelMatch = () => {
     setMatchResult(null);
+    setMediaFiles([]);
   };
 
   const renderRecruitPage = () => (
@@ -294,6 +334,7 @@ function App() {
             const el = document.getElementById('recruit-upload');
             if (el) el.click();
           }}>选择阵容文件</button>
+          <button className="btn btn-primary" disabled={recruitFiles.length === 0 || lineupLoading} onClick={confirmFormationUpload}>确认识别</button>
           <button className="btn" onClick={() => setRecruitError('')}>清除提示</button>
         </div>
         <ScreenshotUploader onUpload={handleFormationUpload} loading={lineupLoading} title="═══ 上传阵型截图 ═══" maxFiles={1} triggerId="recruit-upload" />
@@ -309,7 +350,7 @@ function App() {
           <FormationResultCard
             formation={formationDraft}
             onConfirm={handleConfirmFormation}
-            onCancel={() => setFormationDraft(null)}
+            onCancel={() => { setFormationDraft(null); setRecruitFiles([]); }}
           />
         )}
       </div>
@@ -326,7 +367,25 @@ function App() {
         <div className="panel-title">赛后媒体中心</div>
         <p className="panel-desc">上传 1-3 张赛后统计截图，识别结果后生成新闻与论坛回帖。</p>
         {!matchResult && (
-          <ScreenshotUploader onUpload={handleMatchUpload} loading={loading} />
+          <>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <button className="btn btn-primary" onClick={() => {
+                const el = document.getElementById('media-upload');
+                if (el) el.click();
+              }}>选择比赛截图</button>
+              <button className="btn btn-primary" disabled={mediaFiles.length === 0 || loading} onClick={confirmMatchUpload}>确认识别</button>
+              <button className="btn" onClick={() => setMediaError('')}>清除提示</button>
+            </div>
+            <ScreenshotUploader onUpload={handleMatchUpload} loading={loading} title="═══ 上传比赛截图 ═══" maxFiles={3} triggerId="media-upload" />
+            {mediaError && (
+              <div className="error-box" style={{ marginTop: 12 }}>
+                <div className="error-title">AI 识别失败可能原因</div>
+                <ul className="error-list">
+                  {Array.isArray(mediaError) ? mediaError.map((t, i) => (<li key={i}>{t}</li>)) : (<li>{mediaError}</li>)}
+                </ul>
+              </div>
+            )}
+          </>
         )}
         {matchResult && (
           <MatchResultCard
@@ -427,12 +486,12 @@ function App() {
 
   return (
     <div className="container">
-      {loading && (
+      {(loading || lineupLoading) && (
         <div className="loading-overlay">
           <div className="loading-content">
             <div className="loading-spinner">⚽</div>
             <div className="loading-text">
-              {matchResult ? '正在生成评论...' : '正在识别截图...'}
+              {lineupLoading ? '正在识别阵容...' : (matchResult ? '正在生成评论...' : '正在识别截图...')}
             </div>
           </div>
         </div>

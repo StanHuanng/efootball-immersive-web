@@ -6,8 +6,8 @@ function hasApiKey() {
   return !!(DOUBAO_API_KEY && DOUBAO_API_KEY !== 'your_api_key_here');
 }
 
-function buildImageMessages(imagesBase64) {
-  return imagesBase64.map(img => ({ type: 'image_url', image_url: { url: img } }));
+function buildImageInputs(imagesBase64) {
+  return imagesBase64.map(img => ({ type: 'input_image', image_url: img }));
 }
 
 export async function recognizeScreenshot(imageBase64) {
@@ -20,7 +20,7 @@ export async function generateComment(context) {
   }
   const { player, matchData, hostility } = context;
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -28,17 +28,12 @@ export async function generateComment(context) {
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
-        messages: [{
-          role: 'system',
-          content: '你现在是一个混合身份：一半是毒舌足球解说，一半是资深论坛键盘侠。根据传入的球员评分与敌对度，生成带有现代梗（牢X、依托构思、神仙球反讽、顶级理解）且偏见强烈的分裂评论，用中文输出，1-2 句话即可。'
-        }, {
+        input: [{
           role: 'user',
-          content: `球员: ${player.name}(${player.nickname})
-评分: ${matchData.rating}
-敌对度: ${hostility}
-救赎状态: ${player.getRedemptionState?.() || 'Fallen'}
-剧情背景: ${player.backstory || '失意者'}
-请生成一条论坛回帖风格短评，包含现代足球网络梗。`
+          content: [{
+            type: 'input_text',
+            text: `球员: ${player.name}(${player.nickname})\n评分: ${matchData.rating}\n敌对度: ${hostility}\n救赎状态: ${player.getRedemptionState?.() || 'Fallen'}\n剧情背景: ${player.backstory || '失意者'}\n请生成一条论坛回帖风格短评，包含现代足球网络梗。`
+          }]
         }]
       })
     });
@@ -56,7 +51,7 @@ export async function generateNewsReport(context) {
   }
   try {
     const { matchData, players, result } = context;
-    const response = await fetch(`${DOUBAO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -64,15 +59,12 @@ export async function generateNewsReport(context) {
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
-        messages: [{
-          role: 'system',
-          content: '你是《踢球者》风格的体育记者，需用中文撰写赛后简报，并附上亮点 bullet 列表（3-5 条）。语气专业但带一点戏谑。'
-        }, {
+        input: [{
           role: 'user',
-          content: `比分结果: ${result}
-控球率: ${matchData.possession}%
-关键球员: ${players.map(p => `${p.name}${p.rating ? `(${p.rating})` : ''}`).join(', ')}
-请生成一个 JSON，包含 title(20 字内)、content(80-120 字)、highlights(数组)。`
+          content: [{
+            type: 'input_text',
+            text: `你是《踢球者》风格的体育记者，需用中文撰写赛后简报，并附上亮点 bullet 列表（3-5 条）。\n比分结果: ${result}\n控球率: ${matchData.possession}%\n关键球员: ${players.map(p => `${p.name}${p.rating ? `(${p.rating})` : ''}`).join(', ')}\n请生成一个 JSON，包含 title(20 字内)、content(80-120 字)、highlights(数组)。`
+          }]
         }]
       })
     });
@@ -89,7 +81,7 @@ export async function generateBackstories(players) {
     return getMockBackstories(players);
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -97,12 +89,12 @@ export async function generateBackstories(players) {
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
-        messages: [{
-          role: 'system',
-          content: '为每位球员生成失意者背景和外号，外号 2-5 字，背景 1 句话，偏毒舌，JSON 数组输出。'
-        }, {
+        input: [{
           role: 'user',
-          content: `球员列表: ${players.map(p => `${p.name}(${p.position || '未知'})`).join(', ')}`
+          content: [{
+            type: 'input_text',
+            text: `为每位球员生成失意者背景和外号，外号 2-5 字，背景 1 句话，偏毒舌，JSON 数组输出。\n球员列表: ${players.map(p => `${p.name}(${p.position || '未知'})`).join(', ')}`
+          }]
         }]
       })
     });
@@ -119,7 +111,7 @@ export async function recognizeLineup(imageBase64) {
     return getMockFormationResult();
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -127,15 +119,12 @@ export async function recognizeLineup(imageBase64) {
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
-        messages: [{
+        input: [{
           role: 'user',
-          content: [{
-            type: 'image_url',
-            image_url: { url: imageBase64 }
-          }, {
-            type: 'text',
-            text: '识别这张 eFootball 阵容/计划截图，输出 JSON：{teamName, players:[{name, position, rating}]}'
-          }]
+          content: [
+            { type: 'input_image', image_url: imageBase64 },
+            { type: 'input_text', text: '识别这张 eFootball 阵容/计划截图，输出 JSON：{teamName, players:[{name, position, rating}]}' }
+          ]
         }]
       })
     });
@@ -152,7 +141,7 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
     return getMockVisionResult();
   }
   try {
-    const response = await fetch(`${DOUBAO_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${DOUBAO_BASE_URL}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -160,12 +149,12 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
       },
       body: JSON.stringify({
         model: DOUBAO_MODEL,
-        messages: [{
+        input: [{
           role: 'user',
           content: [
-            ...buildImageMessages(imagesBase64),
+            ...buildImageInputs(imagesBase64),
             {
-              type: 'text',
+              type: 'input_text',
               text: `识别这些 eFootball 赛后统计截图。请对比球员名单: ${knownPlayers.map(p => p.name).join(', ')}, 输出 JSON {result:'win|draw|loss', score:'2-1', possession: number, players:[{name, position, rating}]}`
             }
           ]
@@ -182,7 +171,7 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
 
 function parseVisionResponse(data) {
   try {
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -195,12 +184,12 @@ function parseVisionResponse(data) {
 }
 
 function parseChatResponse(data) {
-  return data.choices?.[0]?.message?.content || '';
+  return data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
 }
 
 function parseNewsResponse(data) {
   try {
-    const content = data.choices?.[0]?.message?.content || '';
+    const content = data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
