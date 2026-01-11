@@ -14,14 +14,17 @@ function hasApiKey() {
 function buildImageInputs(imagesBase64) {
   return imagesBase64.map(img => {
     const isDataUrl = typeof img === 'string' && img.startsWith('data:');
-    const looksBase64 = typeof img === 'string' && !isDataUrl && !img.startsWith('http');
     if (isDataUrl) {
+      // 豆包 API 支持 data URL 格式（来自 compressImage 或其他）
       return { type: 'input_image', image_url: img };
     }
-    if (looksBase64) {
-      // Some APIs expect base64 field name; try image_base64 when not a URL
-      return { type: 'input_image', image_base64: img };
+    // 其他情况假设为标准 base64（不含 data: 前缀）或 URL
+    if (typeof img === 'string' && !img.startsWith('http')) {
+      // 纯 base64，需要补上 data URL 前缀
+      // 注：实际 MIME 类型应由调用者确保，这里默认 jpeg
+      return { type: 'input_image', image_url: `data:image/jpeg;base64,${img}` };
     }
+    // 网络 URL
     return { type: 'input_image', image_url: img };
   });
 }
@@ -53,6 +56,9 @@ export async function generateComment(context) {
         }]
       })
     });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
     return parseChatResponse(data);
   } catch (error) {
@@ -84,6 +90,9 @@ export async function generateNewsReport(context) {
         }]
       })
     });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
     return parseNewsResponse(data);
   } catch (error) {
@@ -114,6 +123,9 @@ export async function generateBackstories(players) {
         }]
       })
     });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
     return parseBackstoryResponse(data, players);
   } catch (error) {
@@ -138,12 +150,15 @@ export async function recognizeLineup(imageBase64) {
         input: [{
           role: 'user',
           content: [
-            { type: 'input_image', image_url: imageBase64 },
+            ...buildImageInputs([imageBase64]),
             { type: 'input_text', text: '识别这张 eFootball 阵容/计划截图，输出 JSON：{teamName, players:[{name, position, rating}]}' }
           ]
         }]
       })
     });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
     return parseFormationResponse(data);
   } catch (error) {
@@ -177,6 +192,9 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
         }]
       })
     });
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
     return parseVisionResponse(data);
   } catch (error) {
@@ -187,7 +205,22 @@ export async function recognizeMatchScreenshots(imagesBase64, knownPlayers = [])
 
 function parseVisionResponse(data) {
   try {
-    const content = data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
+    // 豆包 API 返回格式：{ output: [{ text: "..." }], ... }
+    let content = '';
+    if (data.output && Array.isArray(data.output)) {
+      // 豆包返回的是 output 数组
+      content = data.output.map(o => o.text || '').join('');
+    } else if (data.output_text && Array.isArray(data.output_text)) {
+      // 备用格式
+      content = data.output_text[0] || '';
+    } else if (data.choices?.[0]?.message?.content) {
+      // OpenAI 格式
+      content = data.choices[0].message.content;
+    }
+    
+    if (!content) return getMockVisionResult();
+    
+    // 尝试提取 JSON
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -195,17 +228,33 @@ function parseVisionResponse(data) {
     }
     return getMockVisionResult();
   } catch (error) {
+    console.error('parseVisionResponse error:', error);
     return getMockVisionResult();
   }
 }
 
 function parseChatResponse(data) {
+  // 豆包 API 返回格式：{ output: [{ text: "..." }], ... }
+  if (data.output && Array.isArray(data.output)) {
+    return data.output.map(o => o.text || '').join('');
+  }
   return data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
 }
 
 function parseNewsResponse(data) {
   try {
-    const content = data.output_text?.[0] || data.choices?.[0]?.message?.content || '';
+    // 豆包 API 返回格式：{ output: [{ text: "..." }], ... }
+    let content = '';
+    if (data.output && Array.isArray(data.output)) {
+      content = data.output.map(o => o.text || '').join('');
+    } else if (data.output_text && Array.isArray(data.output_text)) {
+      content = data.output_text[0] || '';
+    } else if (data.choices?.[0]?.message?.content) {
+      content = data.choices[0].message.content;
+    }
+    
+    if (!content) return getMockNewsReport({});
+    
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -214,13 +263,25 @@ function parseNewsResponse(data) {
     }
     return getMockNewsReport({});
   } catch (error) {
+    console.error('parseNewsResponse error:', error);
     return getMockNewsReport({});
   }
 }
 
 function parseFormationResponse(data) {
   try {
-    const content = data.choices?.[0]?.message?.content || '';
+    // 豆包 API 返回格式：{ output: [{ text: "..." }], ... }
+    let content = '';
+    if (data.output && Array.isArray(data.output)) {
+      content = data.output.map(o => o.text || '').join('');
+    } else if (data.output_text && Array.isArray(data.output_text)) {
+      content = data.output_text[0] || '';
+    } else if (data.choices?.[0]?.message?.content) {
+      content = data.choices[0].message.content;
+    }
+    
+    if (!content) return getMockFormationResult();
+    
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -228,13 +289,25 @@ function parseFormationResponse(data) {
     }
     return getMockFormationResult();
   } catch (error) {
+    console.error('parseFormationResponse error:', error);
     return getMockFormationResult();
   }
 }
 
 function parseBackstoryResponse(data, players) {
   try {
-    const content = data.choices?.[0]?.message?.content || '';
+    // 豆包 API 返回格式：{ output: [{ text: "..." }], ... }
+    let content = '';
+    if (data.output && Array.isArray(data.output)) {
+      content = data.output.map(o => o.text || '').join('');
+    } else if (data.output_text && Array.isArray(data.output_text)) {
+      content = data.output_text[0] || '';
+    } else if (data.choices?.[0]?.message?.content) {
+      content = data.choices[0].message.content;
+    }
+    
+    if (!content) return getMockBackstories(players);
+    
     const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       const jsonStr = jsonMatch[1] || jsonMatch[0];
@@ -248,6 +321,7 @@ function parseBackstoryResponse(data, players) {
     }
     return getMockBackstories(players);
   } catch (error) {
+    console.error('parseBackstoryResponse error:', error);
     return getMockBackstories(players);
   }
 }
